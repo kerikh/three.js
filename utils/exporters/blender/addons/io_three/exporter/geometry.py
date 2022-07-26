@@ -52,7 +52,7 @@ class Geometry(base_classes.BaseNode):
             logger.info("%s has no animation data", self.node)
             return
 
-        return '%s.%s.%s' % (self.node, key, ext)
+        return f'{self.node}.{key}.{ext}'
 
     @property
     def face_count(self):
@@ -149,8 +149,7 @@ class Geometry(base_classes.BaseNode):
         """Copy the textures to the destination directory."""
         logger.debug("Geometry().copy_textures()")
         if self.options.get(constants.EXPORT_TEXTURES) and not self.options.get(constants.EMBED_TEXTURES):
-            texture_registration = self.register_textures()
-            if texture_registration:
+            if texture_registration := self.register_textures():
                 logger.info("%s has registered textures", self.node)
                 dirname = os.path.dirname(os.path.abspath(self.scene.filepath))
                 full_path = os.path.join(dirname, texture_folder)
@@ -216,8 +215,7 @@ class Geometry(base_classes.BaseNode):
             logger.info("%s has no animation data", self.node)
             return
 
-        filepath = os.path.join(filepath, self.animation_filename)
-        if filepath:
+        if filepath := os.path.join(filepath, self.animation_filename):
             logger.info("Dumping animation data to %s", filepath)
             io.dump(filepath, data, options=self.scene.options)
             return filepath
@@ -269,9 +267,12 @@ class Geometry(base_classes.BaseNode):
 
         option_extra_vgroups = self.options.get(constants.EXTRA_VGROUPS)
 
-        for name, index in api.mesh.extra_vertex_groups(self.node,
-                                                        option_extra_vgroups):
-            components.append(name)
+        components.extend(
+            name
+            for name, index in api.mesh.extra_vertex_groups(
+                self.node, option_extra_vgroups
+            )
+        )
 
         for component in components:
             try:
@@ -293,7 +294,7 @@ class Geometry(base_classes.BaseNode):
             }
         }
         data[constants.METADATA].update(self.metadata)
-        data.update(self._component_data())
+        data |= self._component_data()
 
         draw_calls = self.get(constants.DRAW_CALLS)
         if draw_calls is not None:
@@ -327,7 +328,7 @@ class Geometry(base_classes.BaseNode):
         for key in self.keys():
             if key in vectors:
                 try:
-                    metadata[key] = int(len(self[key])/3)
+                    metadata[key] = len(self[key]) // 3
                 except KeyError:
                     pass
                 continue
@@ -356,7 +357,7 @@ class Geometry(base_classes.BaseNode):
         if self[constants.TYPE] == constants.GEOMETRY.title():
             data[constants.DATA] = self._component_data()
         else:
-            data.update(self._component_data())
+            data |= self._component_data()
             draw_calls = self.get(constants.DRAW_CALLS)
             if draw_calls is not None:
                 data[constants.DRAW_CALLS] = draw_calls

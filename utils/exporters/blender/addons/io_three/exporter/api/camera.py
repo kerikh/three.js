@@ -19,11 +19,7 @@ def _camera(func):
 
         """
 
-        if isinstance(name, types.Camera):
-            camera = name
-        else:
-            camera = data.cameras[name]
-
+        camera = name if isinstance(name, types.Camera) else data.cameras[name]
         return func(camera, *args, **kwargs)
 
     return inner

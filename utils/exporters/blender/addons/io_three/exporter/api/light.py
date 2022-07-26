@@ -18,11 +18,7 @@ def _lamp(func):
 
         """
 
-        if isinstance(name, types.Lamp):
-            lamp = name
-        else:
-            lamp = data.lamps[name]
-
+        lamp = name if isinstance(name, types.Lamp) else data.lamps[name]
         return func(lamp, *args, **kwargs)
 
     return inner

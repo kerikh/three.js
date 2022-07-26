@@ -157,8 +157,7 @@ def diffuse_map(material):
     """
     logger.debug("material.diffuse_map(%s)", material)
     for texture in _valid_textures(material):
-        if texture.use_map_color_diffuse and not \
-           texture.blend_type == MULTIPLY:
+        if texture.use_map_color_diffuse and texture.blend_type != MULTIPLY:
             return texture.texture
 
 
@@ -317,13 +316,11 @@ def type(material):
     """
     logger.debug("material.type(%s)", material)
     if material.diffuse_shader != 'LAMBERT':
-        material_type = constants.BASIC
+        return constants.BASIC
     elif material.specular_intensity > 0:
-        material_type = constants.PHONG
+        return constants.PHONG
     else:
-        material_type = constants.LAMBERT
-
-    return material_type
+        return constants.LAMBERT
 
 
 @_material
@@ -392,10 +389,7 @@ def _valid_textures(material, strict_use=True):
     for texture in material.texture_slots:
         if not texture:
             continue
-        if strict_use:
-            in_use = texture.use
-        else:
-            in_use = True
+        in_use = texture.use if strict_use else True
         if not in_use:
             continue
         if not texture.texture or texture.texture.type != IMAGE:

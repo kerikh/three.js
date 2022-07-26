@@ -40,9 +40,9 @@ def main():
 def convert(infile, outfile):
     if not outfile:
         ext = infile.split('.')[-1]
-        outfile = '%s%s' % (infile[:-len(ext)-1], EXT)
+        outfile = f'{infile[:-len(ext)-1]}{EXT}'
 
-    print('%s > %s' % (infile, outfile))
+    print(f'{infile} > {outfile}')
 
     print('reading in JSON')
     with open(infile) as op:

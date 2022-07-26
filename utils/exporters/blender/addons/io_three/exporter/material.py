@@ -13,11 +13,9 @@ class Material(base_classes.BaseNode):
         if self[constants.TYPE] == constants.THREE_PHONG:
             self._phong_attributes()
 
-        textures = self.parent.options.get(constants.MAPS)
-        if textures:
+        if textures := self.parent.options.get(constants.MAPS):
             self._update_maps()
-        skinning = self.parent.options.get(constants.SKINNING)
-        if skinning:
+        if skinning := self.parent.options.get(constants.SKINNING):
             self[constants.SKINNING] = True
 
     def _common_attributes(self):
@@ -38,8 +36,7 @@ class Material(base_classes.BaseNode):
             emissive = api.material.emissive_color(self.node)
             self[constants.EMISSIVE] = utilities.rgb2int(emissive)
 
-        vertex_color = api.material.use_vertex_colors(self.node)
-        if vertex_color:
+        if vertex_color := api.material.use_vertex_colors(self.node):
             self[constants.VERTEX_COLORS] = constants.VERTEX_COLORS_ON
         else:
             self[constants.VERTEX_COLORS] = constants.VERTEX_COLORS_OFF
@@ -77,8 +74,7 @@ class Material(base_classes.BaseNode):
         )
 
         for func, key in mapping:
-            map_node = func(self.node)
-            if map_node:
+            if map_node := func(self.node):
                 logger.info('Found map node %s for %s', map_node, key)
                 tex_inst = self.scene.texture(map_node.name)
                 self[key] = tex_inst[constants.UUID]

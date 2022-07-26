@@ -214,11 +214,7 @@ class Unpacker(object):
             return True
         if self._fb_feeding:
             return False
-        if not self.file_like:
-            return False
-        if self.file_like.read(1):
-            return True
-        return False
+        return bool(self.file_like.read(1)) if self.file_like else False
 
     def __iter__(self):
         return self
@@ -393,12 +389,12 @@ class Unpacker(object):
         # TODO should we eliminate the recursion?
         if typ == TYPE_ARRAY:
             if execute == EX_SKIP:
-                for i in xrange(n):
+                for _ in xrange(n):
                     # TODO check whether we need to call `list_hook`
                     self._fb_unpack(EX_SKIP, write_bytes)
                 return
             ret = newlist_hint(n)
-            for i in xrange(n):
+            for _ in xrange(n):
                 ret.append(self._fb_unpack(EX_CONSTRUCT, write_bytes))
             if self._list_hook is not None:
                 ret = self._list_hook(ret)
@@ -406,7 +402,7 @@ class Unpacker(object):
             return ret if self._use_list else tuple(ret)
         if typ == TYPE_MAP:
             if execute == EX_SKIP:
-                for i in xrange(n):
+                for _ in xrange(n):
                     # TODO check whether we need to call hooks
                     self._fb_unpack(EX_SKIP, write_bytes)
                     self._fb_unpack(EX_SKIP, write_bytes)
@@ -502,9 +498,8 @@ class Packer(object):
         self._encoding = encoding
         self._unicode_errors = unicode_errors
         self._buffer = StringIO()
-        if default is not None:
-            if not callable(default):
-                raise TypeError("default must be callable")
+        if default is not None and not callable(default):
+            raise TypeError("default must be callable")
         self._default = default
 
     def _pack(self, obj, nest_limit=DEFAULT_RECURSE_LIMIT, isinstance=isinstance):
@@ -515,9 +510,7 @@ class Packer(object):
             if obj is None:
                 return self._buffer.write(b"\xc0")
             if isinstance(obj, bool):
-                if obj:
-                    return self._buffer.write(b"\xc3")
-                return self._buffer.write(b"\xc2")
+                return self._buffer.write(b"\xc3") if obj else self._buffer.write(b"\xc2")
             if isinstance(obj, int_types):
                 if 0 <= obj < 0x80:
                     return self._buffer.write(struct.pack("B", obj))

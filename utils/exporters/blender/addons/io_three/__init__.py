@@ -60,11 +60,7 @@ def _geometry_types():
     keys = (constants.GLOBAL,
             constants.GEOMETRY,
             constants.BUFFER_GEOMETRY)
-    types = []
-    for key in keys:
-        types.append((key, key.title(), key))
-
-    return types
+    return [(key, key.title(), key) for key in keys]
 
 bpy.types.Mesh.THREE_geometry_type = EnumProperty(
     name="Geometry type",
@@ -137,7 +133,7 @@ class ThreeMaterial(bpy.types.Panel):
 
         if mat is not None:
             row = layout.row()
-            row.label(text="Selected material: %s" % mat.name)
+            row.label(text=f"Selected material: {mat.name}")
 
             row = layout.row()
             row.prop(mat, 'THREE_blending_type',

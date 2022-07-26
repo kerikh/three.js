@@ -19,11 +19,7 @@ def _image(func):
 
         """
 
-        if isinstance(name, types.Image):
-            mesh = name
-        else:
-            mesh = data.images[name]
-
+        mesh = name if isinstance(name, types.Image) else data.images[name]
         return func(mesh, *args, **kwargs)
 
     return inner

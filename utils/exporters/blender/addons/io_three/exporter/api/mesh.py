@@ -53,11 +53,7 @@ def _mesh(func):
 
         """
 
-        if isinstance(name, types.Mesh):
-            mesh = name
-        else:
-            mesh = data.meshes[name]
-
+        mesh = name if isinstance(name, types.Mesh) else data.meshes[name]
         return func(mesh, *args, **kwargs)
 
     return inner
@@ -87,11 +83,9 @@ def skeletal_animation(mesh, options):
     }
 
     func = dispatch[anim_type]
-#    armature.data.pose_position = anim_type.upper()
-    animations = func(armature, options)
 #    armature.data.pose_position = pose_position
 
-    return animations
+    return func(armature, options)
 
 @_mesh
 def bones(mesh, options):
@@ -169,7 +163,7 @@ def buffer_normal(mesh, options):
 
         # using Object Loader with skinned mesh
         if options.get(constants.SCENE, True) and _armature(mesh):
-        
+
             for vertex_index in face.vertices:
                 normal = mesh.vertices[vertex_index].normal
                 vector = flip_axes(normal, XZ_Y) if face.use_smooth else flip_axes(face.normal, XZ_Y)
@@ -210,14 +204,9 @@ def buffer_face_material(mesh, options):
     :rtype: []
 
     """
-    face_material = []
     logger.info("Retrieving face materials.")
 
-    for face in mesh.tessfaces:
-        #logger.info("face:%d,%d",face.index,face.material_index)
-        face_material.append(face.material_index)
-
-    return face_material
+    return [face.material_index for face in mesh.tessfaces]
 
 
 @_mesh
@@ -315,11 +304,7 @@ def extra_vertex_groups(mesh, patterns_string):
         # Skip bone weights:
         vgroup_name = vgroup.name
         if armature:
-            is_bone_weight = False
-            for bone in armature.pose.bones:
-                if bone.name == vgroup_name:
-                    is_bone_weight = True
-                    break
+            is_bone_weight = any(bone.name == vgroup_name for bone in armature.pose.bones)
             if is_bone_weight:
                 continue
 
@@ -473,9 +458,7 @@ def faces(mesh, options, material_list=None):
             constants.COLORS: False
         }
 
-        face_data = []
-
-        face_data.extend([v for v in face.vertices])
+        face_data = list(list(face.vertices))
 
         if mask[constants.MATERIALS]:
             for mat_index, mat in enumerate(material_list):
@@ -534,7 +517,7 @@ def faces(mesh, options, material_list=None):
                     normal = flip_axes(normal) if face.use_smooth else flip_axes(face.normal)
                     face_data.append(normal_indices[str(normal)])
                     mask[constants.NORMALS] = True
-            
+
 
         if vertex_colours:
             colours = mesh.tessface_vertex_colors.active.data[face.index]
@@ -615,14 +598,10 @@ def morph_targets(mesh, options):
         logger.info("No valid morph data detected")
         return []
 
-    manifest = []
-    for index, morph in enumerate(morphs):
-        manifest.append({
-            constants.NAME: 'animation_%06d' % index,
-            constants.VERTICES: morph
-        })
-
-    return manifest
+    return [
+        {constants.NAME: 'animation_%06d' % index, constants.VERTICES: morph}
+        for index, morph in enumerate(morphs)
+    ]
 
 @_mesh
 def blend_shapes(mesh, options):
@@ -662,7 +641,7 @@ def animated_blend_shapes(mesh, name, options):
 
     # let filter the name to only keep the node's name
     # the two cases are '%sGeometry' and '%sGeometry.%d', and we want %s
-    name = re.search("^(.*)Geometry(\..*)?$", name).group(1)
+    name = re.search("^(.*)Geometry(\..*)?$", name)[1]
 
     logger.debug("mesh.animated_blend_shapes(%s, %s)", mesh, options)
     tracks = []
@@ -671,16 +650,19 @@ def animated_blend_shapes(mesh, name, options):
     if animCurves:
         animCurves = animCurves.action.fcurves
 
-    for key in shp.key_blocks.keys()[1:]:    # skip "Basis"
-        key_name = name+".morphTargetInfluences["+key+"]"
+    for key in shp.key_blocks.keys()[1:]:# skip "Basis"
+        key_name = f"{name}.morphTargetInfluences[{key}]"
         found_animation = False
         data_path = 'key_blocks["'+key+'"].value'
         values = []
         if animCurves:
             for fcurve in animCurves:
                 if fcurve.data_path == data_path:
-                    for xx in fcurve.keyframe_points:
-                        values.append({ "time": xx.co.x, "value": xx.co.y })
+                    values.extend(
+                        {"time": xx.co.x, "value": xx.co.y}
+                        for xx in fcurve.keyframe_points
+                    )
+
                     found_animation = True
                     break # no need to continue
 
@@ -707,16 +689,7 @@ def materials(mesh, options):
     if not mesh.materials:
         return []
 
-    indices = []
-    
-    #manthrax: Disable the following logic that attempts to find only the used materials on this mesh
-    #for face in mesh.tessfaces:
-    #    if face.material_index not in indices:
-    #        indices.append(face.material_index)
-    # instead, export all materials on this object... they are probably there for a good reason, even if they aren't referenced by the geometry at present...
-    for index in range(len( mesh.materials )):
-        indices.append(index)
-
+    indices = list(range(len( mesh.materials )))
 
     material_sets = [(mesh.materials[index], index) for index in indices]
     materials_ = []
@@ -729,7 +702,7 @@ def materials(mesh, options):
     logger.info("Vertex colours set to %s", use_colors)
 
     for mat, index in material_sets:
-        if mat == None:     # undefined material for a specific index is skipped
+        if mat is None:     # undefined material for a specific index is skipped
             continue
 
         try:
@@ -764,10 +737,11 @@ def materials(mesh, options):
 
         if attributes[constants.SHADING] == constants.PHONG:
             logger.info("Adding specular attributes")
-            attributes.update({
+            attributes |= {
                 constants.SPECULAR_COEF: material.specular_coef(mat),
-                constants.COLOR_SPECULAR: material.specular_color(mat)
-            })
+                constants.COLOR_SPECULAR: material.specular_color(mat),
+            }
+
 
         if mesh.show_double_sided:
             logger.info("Double sided is on")
@@ -778,29 +752,24 @@ def materials(mesh, options):
         if not maps:
             continue
 
-        diffuse = _diffuse_map(mat)
-        if diffuse:
+        if diffuse := _diffuse_map(mat):
             logger.info("Diffuse map found")
-            attributes.update(diffuse)
+            attributes |= diffuse
 
-        light = _light_map(mat)
-        if light:
+        if light := _light_map(mat):
             logger.info("Light map found")
             attributes.update(light)
 
-        specular = _specular_map(mat)
-        if specular:
+        if specular := _specular_map(mat):
             logger.info("Specular map found")
             attributes.update(specular)
 
         if attributes[constants.SHADING] == constants.PHONG:
-            normal = _normal_map(mat)
-            if normal:
+            if normal := _normal_map(mat):
                 logger.info("Normal map found")
                 attributes.update(normal)
 
-            bump = _bump_map(mat)
-            if bump:
+            if bump := _bump_map(mat):
                 logger.info("Bump map found")
                 attributes.update(bump)
 
@@ -1004,18 +973,13 @@ def _normal_map(mat):
 
     logger.info("Found normal texture map %s", tex.name)
 
-    normal = {
-        constants.MAP_NORMAL:
-            texture.file_name(tex),
-        constants.MAP_NORMAL_FACTOR:
-            material.normal_scale(mat),
-        constants.MAP_NORMAL_ANISOTROPY:
-            texture.anisotropy(tex),
+    return {
+        constants.MAP_NORMAL: texture.file_name(tex),
+        constants.MAP_NORMAL_FACTOR: material.normal_scale(mat),
+        constants.MAP_NORMAL_ANISOTROPY: texture.anisotropy(tex),
         constants.MAP_NORMAL_WRAP: texture.wrap(tex),
-        constants.MAP_NORMAL_REPEAT: texture.repeat(tex)
+        constants.MAP_NORMAL_REPEAT: texture.repeat(tex),
     }
-
-    return normal
 
 
 def _bump_map(mat):
@@ -1030,18 +994,13 @@ def _bump_map(mat):
 
     logger.info("Found bump texture map %s", tex.name)
 
-    bump = {
-        constants.MAP_BUMP:
-            texture.file_name(tex),
-        constants.MAP_BUMP_ANISOTROPY:
-            texture.anisotropy(tex),
+    return {
+        constants.MAP_BUMP: texture.file_name(tex),
+        constants.MAP_BUMP_ANISOTROPY: texture.anisotropy(tex),
         constants.MAP_BUMP_WRAP: texture.wrap(tex),
         constants.MAP_BUMP_REPEAT: texture.repeat(tex),
-        constants.MAP_BUMP_SCALE:
-            material.bump_scale(mat),
+        constants.MAP_BUMP_SCALE: material.bump_scale(mat),
     }
-
-    return bump
 
 
 def _specular_map(mat):
@@ -1056,16 +1015,12 @@ def _specular_map(mat):
 
     logger.info("Found specular texture map %s", tex.name)
 
-    specular = {
-        constants.MAP_SPECULAR:
-            texture.file_name(tex),
-        constants.MAP_SPECULAR_ANISOTROPY:
-            texture.anisotropy(tex),
+    return {
+        constants.MAP_SPECULAR: texture.file_name(tex),
+        constants.MAP_SPECULAR_ANISOTROPY: texture.anisotropy(tex),
         constants.MAP_SPECULAR_WRAP: texture.wrap(tex),
-        constants.MAP_SPECULAR_REPEAT: texture.repeat(tex)
+        constants.MAP_SPECULAR_REPEAT: texture.repeat(tex),
     }
-
-    return specular
 
 
 def _light_map(mat):
@@ -1080,16 +1035,12 @@ def _light_map(mat):
 
     logger.info("Found light texture map %s", tex.name)
 
-    light = {
-        constants.MAP_LIGHT:
-            texture.file_name(tex),
-        constants.MAP_LIGHT_ANISOTROPY:
-            texture.anisotropy(tex),
+    return {
+        constants.MAP_LIGHT: texture.file_name(tex),
+        constants.MAP_LIGHT_ANISOTROPY: texture.anisotropy(tex),
         constants.MAP_LIGHT_WRAP: texture.wrap(tex),
-        constants.MAP_LIGHT_REPEAT: texture.repeat(tex)
+        constants.MAP_LIGHT_REPEAT: texture.repeat(tex),
     }
-
-    return light
 
 
 def _diffuse_map(mat):
@@ -1104,16 +1055,12 @@ def _diffuse_map(mat):
 
     logger.info("Found diffuse texture map %s", tex.name)
 
-    diffuse = {
-        constants.MAP_DIFFUSE:
-            texture.file_name(tex),
-        constants.MAP_DIFFUSE_ANISOTROPY:
-            texture.anisotropy(tex),
+    return {
+        constants.MAP_DIFFUSE: texture.file_name(tex),
+        constants.MAP_DIFFUSE_ANISOTROPY: texture.anisotropy(tex),
         constants.MAP_DIFFUSE_WRAP: texture.wrap(tex),
-        constants.MAP_DIFFUSE_REPEAT: texture.repeat(tex)
+        constants.MAP_DIFFUSE_REPEAT: texture.repeat(tex),
     }
-
-    return diffuse
 
 
 def _normals(mesh, options):
@@ -1140,7 +1087,7 @@ def _normals(mesh, options):
                 except KeyError:
                     vectors.append(vector)
                     vectors_[str_vec] = True
-                    
+
         elif options.get(constants.SCENE, True) and not _armature(mesh):
 
             for vertex_index in face.vertices:
@@ -1219,14 +1166,12 @@ def _armature(mesh):
 
     """
     obj = object_.objects_using_mesh(mesh)[0]
-    armature = obj.find_armature()
-    
     #manthrax: Remove logging spam. This was spamming on every vertex...
     #if armature:
     #    logger.info("Found armature %s for %s", armature.name, obj.name)
     #else:
     #    logger.info("Found no armature for %s", obj.name)
-    return armature
+    return obj.find_armature()
 
 
 def _skinning_data(mesh, bone_map, influences, anim_type, array_index):
@@ -1245,7 +1190,7 @@ def _skinning_data(mesh, bone_map, influences, anim_type, array_index):
         return manifest
 
     # armature bones here based on type
-    if anim_type == constants.OFF or anim_type == constants.REST:
+    if anim_type in [constants.OFF, constants.REST]:
         armature_bones = armature.data.bones
     else:
         # POSE mode
@@ -1255,10 +1200,7 @@ def _skinning_data(mesh, bone_map, influences, anim_type, array_index):
     logger.debug("Skinned object found %s", obj.name)
 
     for vertex in mesh.vertices:
-        bone_array = []
-        for group in vertex.groups:
-            bone_array.append((group.group, group.weight))
-
+        bone_array = [(group.group, group.weight) for group in vertex.groups]
         bone_array.sort(key=operator.itemgetter(1), reverse=True)
 
         for index in range(influences):
@@ -1358,12 +1300,9 @@ def _rest_bones(armature):
             logger.debug("Child bone:%s",str(bone_pos))
 
             bone_index = 0
-            index = 0
-            for parent in armature.data.bones:
+            for index, parent in enumerate(armature.data.bones):
                 if parent.name == bone.parent.name:
                     bone_index = bone_map.get(index)
-                index += 1
-
         bone_world_pos = armature.matrix_world * bone_pos
 
         x_axis = bone_world_pos.x

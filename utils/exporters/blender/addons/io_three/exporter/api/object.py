@@ -47,11 +47,7 @@ def _object(func):
 
         """
 
-        if isinstance(arg, types.Object):
-            obj = arg
-        else:
-            obj = data.objects[arg]
-
+        obj = arg if isinstance(arg, types.Object) else data.objects[arg]
         return func(obj, *args, **kwargs)
 
     return inner
@@ -72,10 +68,9 @@ def assemblies(valid_types, options):
     logger.debug('object.assemblies(%s)', valid_types)
     for obj in data.objects:
 
-        # rigged assets are parented under armature nodes
-        if obj.parent and obj.parent.type != ARMATURE:
-            continue
-        if obj.parent and obj.parent.type == ARMATURE:
+        if obj.parent:
+            if obj.parent.type != ARMATURE:
+                continue
             logger.info('Has armature parent %s', obj.name)
         if _valid_node(obj, valid_types, options):
             yield obj.name
@@ -91,15 +86,12 @@ def cast_shadow(obj):
     logger.debug('object.cast_shadow(%s)', obj)
     if obj.type == LAMP:
         if obj.data.type in (SPOT, SUN):
-            ret = obj.data.shadow_method != NO_SHADOW
-        else:
-            logger.info('%s is a lamp but this lamp type does not '\
-                'have supported shadows in ThreeJS', obj.name)
-            ret = None
-        return ret
+            return obj.data.shadow_method != NO_SHADOW
+        logger.info('%s is a lamp but this lamp type does not '\
+            'have supported shadows in ThreeJS', obj.name)
+        return None
     elif obj.type == MESH:
-        mats = material(obj)
-        if mats:
+        if mats := material(obj):
             for m in mats:
                 if data.materials[m].use_cast_shadows:
                     return True
@@ -136,31 +128,28 @@ def material(obj):
         pass
 
 def extract_time(fcurves, start_index):
-    time = []
-    for xx in fcurves[start_index].keyframe_points:
-        time.append(xx.co.x)
-    return time
+    return [xx.co.x for xx in fcurves[start_index].keyframe_points]
 
 def merge_sorted_lists(l1, l2):
-  sorted_list = []
-  l1 = l1[:]
-  l2 = l2[:]
-  while (l1 and l2):
-    h1 = l1[0]
-    h2 = l2[0]
-    if h1 == h2:
-      sorted_list.append(h1)
-      l1.pop(0)
-      l2.pop(0)
-    elif h1 < h2:
-      l1.pop(0)
-      sorted_list.append(h1)
-    else:
-      l2.pop(0)
-      sorted_list.append(h2)
-  # Add the remaining of the lists
-  sorted_list.extend(l1 if l1 else l2)
-  return sorted_list
+    sorted_list = []
+    l1 = l1[:]
+    l2 = l2[:]
+    while (l1 and l2):
+      h1 = l1[0]
+      h2 = l2[0]
+      if h1 == h2:
+        sorted_list.append(h1)
+        l1.pop(0)
+        l2.pop(0)
+      elif h1 < h2:
+        l1.pop(0)
+        sorted_list.append(h1)
+      else:
+        l2.pop(0)
+        sorted_list.append(h2)
+      # Add the remaining of the lists
+    sorted_list.extend(l1 or l2)
+    return sorted_list
 
 def appendVec3(track, time, vec3):
     track.append({ "time": time, "value": [ vec3.x, vec3.y, vec3.z ] })
@@ -197,8 +186,7 @@ def animated_xform(obj, options):
     # extract unique frames
     times = None
     while i < nb_curves:
-        field_info = TRACKABLE_FIELDS.get(fcurves[i].data_path)
-        if field_info:
+        if field_info := TRACKABLE_FIELDS.get(fcurves[i].data_path):
             newTimes = extract_time(fcurves, i)
             times = merge_sorted_lists(times, newTimes) if times else newTimes  # merge list
             i += field_info[1]
@@ -207,9 +195,9 @@ def animated_xform(obj, options):
 
     # init tracks
     track_loc = []
+    track = []
     for fld in EXPORTED_TRACKABLE_FIELDS:
         field_info = TRACKABLE_FIELDS[fld]
-        track = []
         track_loc.append(track)
         tracks.append({
             constants.NAME: objName+field_info[0],
@@ -223,7 +211,7 @@ def animated_xform(obj, options):
     track_loc = track_loc[0]
     use_inverted = options.get(constants.HIERARCHY, False) and obj.parent
 
-    if times == None:
+    if times is None:
         logger.info("In animated xform: Unable to extract trackable fields from %s", objName)
         return tracks
 
@@ -278,19 +266,16 @@ def mesh(obj, options):
     for mesh_, objects in _MESH_MAP.items():
         if obj in objects:
             return mesh_
+    logger.debug('Could not map object, updating manifest')
+    mesh_ = extract_mesh(obj, options)
+    if len(mesh_.tessfaces) is not 0:
+        manifest = _MESH_MAP.setdefault(mesh_.name, [])
+        manifest.append(obj)
+        return mesh_.name
     else:
-        logger.debug('Could not map object, updating manifest')
-        mesh_ = extract_mesh(obj, options)
-        if len(mesh_.tessfaces) is not 0:
-            manifest = _MESH_MAP.setdefault(mesh_.name, [])
-            manifest.append(obj)
-            mesh_name = mesh_.name
-        else:
-            # possibly just being used as a controller
-            logger.info('Object %s has no faces', obj.name)
-            mesh_name = None
-
-    return mesh_name
+        # possibly just being used as a controller
+        logger.info('Object %s has no faces', obj.name)
+        return None
 
 
 @_object
@@ -334,7 +319,7 @@ def node_type(obj):
     try:
         return dispatch[obj.type][obj.data.type]
     except AttributeError:
-        msg = 'Invalid type: %s' % obj.type
+        msg = f'Invalid type: {obj.type}'
         raise exceptions.UnsupportedObjectType(msg)
 
 
@@ -370,8 +355,7 @@ def receive_shadow(obj):
 
     """
     if obj.type == MESH:
-        mats = material(obj)
-        if mats:
+        if mats := material(obj):
             for m in mats:
                 if data.materials[m].use_shadows:
                     return True
@@ -565,16 +549,14 @@ def extract_mesh(obj, options, recalculate=False):
                             for xx in fcurve.keyframe_points:
                                 dst_kb.value = xx.co.y
                                 dst_kb.keyframe_insert("value",frame=xx.co.x)
-                            pass
                             break  # no need to continue to loop
-                    pass
             obj.data = original_mesh
 
     # now generate a unique name
     index = 0
     while True:
         if index is 0:
-            mesh_name = '%sGeometry' % obj.data.name
+            mesh_name = f'{obj.data.name}Geometry'
         else:
             mesh_name = '%sGeometry.%d' % (obj.data.name, index)
         try:
@@ -600,13 +582,10 @@ def objects_using_mesh(mesh_node):
     :return: list of object names
 
     """
-    #manthrax: remove spam
-    #logger.debug('object.objects_using_mesh(%s)', mesh_node)
     for mesh_name, objects in _MESH_MAP.items():
         if mesh_name == mesh_node.name:
             return objects
-    else:
-        logger.warning('Could not find mesh mapping')
+    logger.warning('Could not find mesh mapping')
 
 
 def prep_meshes(options):
@@ -644,7 +623,7 @@ def prep_meshes(options):
         # this logic identifies the object with modifiers and extracts
         # the mesh making the mesh unique to this particular object
         if len(obj.modifiers):
-            logger.info('%s has modifiers' % obj.name)
+            logger.info(f'{obj.name} has modifiers')
             mesh_node = extract_mesh(obj, options, recalculate=True)
             _MESH_MAP[mesh_node.name] = [obj]
             continue
@@ -668,7 +647,7 @@ def extracted_meshes():
 
     """
     logger.debug('object.extracted_meshes()')
-    return [key for key in _MESH_MAP.keys()]
+    return list(_MESH_MAP.keys())
 
 
 def _on_visible_layer(obj, visible_layers):
@@ -678,11 +657,10 @@ def _on_visible_layer(obj, visible_layers):
     :param visible_layers:
 
     """
-    is_visible = False
-    for index, layer in enumerate(obj.layers):
-        if layer and index in visible_layers:
-            is_visible = True
-            break
+    is_visible = any(
+        layer and index in visible_layers
+        for index, layer in enumerate(obj.layers)
+    )
 
     if not is_visible:
         logger.info('%s is on a hidden layer', obj.name)
@@ -696,11 +674,7 @@ def _visible_scene_layers():
     :return: list of visiible layer indices
 
     """
-    visible_layers = []
-    for index, layer in enumerate(context.scene.layers):
-        if layer:
-            visible_layers.append(index)
-    return visible_layers
+    return [index for index, layer in enumerate(context.scene.layers) if layer]
 
 
 def _valid_node(obj, valid_types, options):
@@ -729,13 +703,10 @@ def _valid_node(obj, valid_types, options):
     mesh_node = mesh(obj, options)
     is_mesh = obj.type == MESH
 
-    # skip objects that a mesh could not be resolved
-    if is_mesh and not mesh_node:
-        return False
-
-    # secondary test; if a mesh node was resolved but no
-    # faces are detected then bow out
     if is_mesh:
+        if not mesh_node:
+            return False
+
         mesh_node = data.meshes[mesh_node]
         if len(mesh_node.tessfaces) is 0:
             return False
