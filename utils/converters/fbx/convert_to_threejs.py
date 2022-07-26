@@ -36,9 +36,11 @@ class NoIndent(object):
         self.separator = separator
         self.value = value
     def encode(self):
-        if not self.value:
-            return None
-        return '[ %s ]' % self.separator.join(str(f) for f in self.value)
+        return (
+            f'[ {self.separator.join((str(f) for f in self.value))} ]'
+            if self.value
+            else None
+        )
 
 # Force an array into chunks rather than printing each element on a new line
 class ChunkedIndent(object):
@@ -62,7 +64,7 @@ class ChunkedIndent(object):
 # When it finds
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, NoIndent) or isinstance(obj, ChunkedIndent):
+        if isinstance(obj, (NoIndent, ChunkedIndent)):
             return obj.encode()
         else:
             return json.JSONEncoder.default(self, obj)
@@ -100,10 +102,7 @@ def serializeVector2(v, round_vector = False):
         v[1] = 0
     if round_vector or option_pretty_print:
         v = (round(v[0], 5), round(v[1], 5))
-    if option_pretty_print:
-        return NoIndent([v[0], v[1]], ', ')
-    else:
-        return [v[0], v[1]]
+    return NoIndent([v[0], v[1]], ', ') if option_pretty_print else [v[0], v[1]]
 
 # FbxVector3 is not JSON serializable
 def serializeVector3(v, round_vector = False):
@@ -162,12 +161,8 @@ def generate_uvs(uv_layers):
     for uvs in uv_layers:
         tmp = []
         for uv in uvs:
-            tmp.append(uv[0])
-            tmp.append(uv[1])
-        if option_pretty_print:
-            layer = ChunkedIndent(tmp)
-        else:
-            layer = tmp
+            tmp.extend((uv[0], uv[1]))
+        layer = ChunkedIndent(tmp) if option_pretty_print else tmp
         layers.append(layer)
     return layers
 
@@ -203,10 +198,7 @@ def getObjectName(o, force_prefix = False):
     if not force_prefix:
         force_prefix = not hasUniqueName(o, FbxNode.ClassId)
 
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Object_%s_" % object_id
-
+    prefix = f"Object_{object_id}_" if option_prefix or force_prefix else ""
     return prefix + object_name
 
 def getMaterialName(o, force_prefix = False):
@@ -216,10 +208,7 @@ def getMaterialName(o, force_prefix = False):
     if not force_prefix:
         force_prefix = not hasUniqueName(o, FbxSurfaceMaterial.ClassId)
 
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Material_%s_" % object_id
-
+    prefix = f"Material_{object_id}_" if option_prefix or force_prefix else ""
     return prefix + object_name
 
 def getTextureName(t, force_prefix = False):
@@ -232,32 +221,30 @@ def getTextureName(t, force_prefix = False):
             texture_id = ""
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Texture_%s_" % t.GetUniqueID()
+        prefix = f"Texture_{t.GetUniqueID()}_"
         if len(texture_id) == 0:
-            prefix = prefix[0:len(prefix)-1]
+            prefix = prefix[:-1]
     return prefix + texture_id
 
 def getMtlTextureName(texture_name, texture_id, force_prefix = False):
     texture_name = os.path.splitext(texture_name)[0]
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Texture_%s_" % texture_id
+    prefix = f"Texture_{texture_id}_" if option_prefix or force_prefix else ""
     return prefix + texture_name
 
 def getPrefixedName(o, prefix):
-    return (prefix + '_%s_') % o.GetUniqueID() + o.GetName()
+    return f'{prefix}_%s_' % o.GetUniqueID() + o.GetName()
 
 # #####################################################
 # Triangulation
 # #####################################################
 def triangulate_node_hierarchy(node):
-    node_attribute = node.GetNodeAttribute();
-
-    if node_attribute:
-        if node_attribute.GetAttributeType() == FbxNodeAttribute.eMesh or \
-           node_attribute.GetAttributeType() == FbxNodeAttribute.eNurbs or \
-           node_attribute.GetAttributeType() == FbxNodeAttribute.eNurbsSurface or \
-           node_attribute.GetAttributeType() == FbxNodeAttribute.ePatch:
+    if node_attribute := node.GetNodeAttribute():
+        if node_attribute.GetAttributeType() in [
+            FbxNodeAttribute.eMesh,
+            FbxNodeAttribute.eNurbs,
+            FbxNodeAttribute.eNurbsSurface,
+            FbxNodeAttribute.ePatch,
+        ]:
             converter.Triangulate(node.GetNodeAttribute(), True);
 
         child_count = node.GetChildCount()
@@ -265,8 +252,7 @@ def triangulate_node_hierarchy(node):
             triangulate_node_hierarchy(node.GetChild(i))
 
 def triangulate_scene(scene):
-    node = scene.GetRootNode()
-    if node:
+    if node := scene.GetRootNode():
         for i in range(node.GetChildCount()):
             triangulate_node_hierarchy(node.GetChild(i))
 
@@ -274,6 +260,10 @@ def triangulate_scene(scene):
 # Generate Material Object
 # #####################################################
 def generate_texture_bindings(material_property, material_params):
+    if not material_property.IsValid():
+        return
+    #Here we have to check if it's layeredtextures, or just textures:
+    layered_texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId))
     # FBX to Three.js texture types
     binding_types = {
         "DiffuseColor": "map",
@@ -295,26 +285,25 @@ def generate_texture_bindings(material_property, material_params):
         "VectorDisplacementColor": "vectorDisplacementMap"
     }
 
-    if material_property.IsValid():
-        #Here we have to check if it's layeredtextures, or just textures:
-        layered_texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId))
-        if layered_texture_count > 0:
-            for j in range(layered_texture_count):
-                layered_texture = material_property.GetSrcObject(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId), j)
-                texture_count = layered_texture.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
-                for k in range(texture_count):
-                    texture = layered_texture.GetSrcObject(FbxCriteria.ObjectType(FbxTexture.ClassId),k)
-                    if texture:
-                        texture_id = getTextureName(texture, True)
-                        material_params[binding_types[str(material_property.GetName())]] = texture_id
-        else:
-            # no layered texture simply get on the property
-            texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
-            for j in range(texture_count):
-                texture = material_property.GetSrcObject(FbxCriteria.ObjectType(FbxTexture.ClassId),j)
-                if texture:
+    if layered_texture_count > 0:
+        for j in range(layered_texture_count):
+            layered_texture = material_property.GetSrcObject(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId), j)
+            texture_count = layered_texture.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
+            for k in range(texture_count):
+                if texture := layered_texture.GetSrcObject(
+                    FbxCriteria.ObjectType(FbxTexture.ClassId), k
+                ):
                     texture_id = getTextureName(texture, True)
                     material_params[binding_types[str(material_property.GetName())]] = texture_id
+    else:
+        # no layered texture simply get on the property
+        texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
+        for j in range(texture_count):
+            if texture := material_property.GetSrcObject(
+                FbxCriteria.ObjectType(FbxTexture.ClassId), j
+            ):
+                texture_id = getTextureName(texture, True)
+                material_params[binding_types[str(material_property.GetName())]] = texture_id
 
 def generate_material_object(material):
     #Get the implementation to see if it's a hardware shader.
@@ -429,12 +418,7 @@ def generate_proxy_material_object(node, material_names):
       'materials' : material_names
     }
 
-    output = {
-      'type' : material_type,
-      'parameters' : material_params
-    }
-
-    return output
+    return {'type': material_type, 'parameters': material_params}
 
 # #####################################################
 # Find Scene Materials
@@ -451,8 +435,7 @@ def extract_materials_from_node(node, material_dict):
 
     material_names = []
     for l in range(mesh.GetLayerCount()):
-        materials = mesh.GetLayer(l).GetMaterials()
-        if materials:
+        if materials := mesh.GetLayer(l).GetMaterials():
             if materials.GetReferenceMode() == FbxLayerElement.eIndex:
                 #Materials are in an undefined external table
                 continue
@@ -466,9 +449,7 @@ def extract_materials_from_node(node, material_dict):
         material_dict[proxy_name] = proxy_material
 
 def generate_materials_from_hierarchy(node, material_dict):
-    if node.GetNodeAttribute() == None:
-        pass
-    else:
+    if node.GetNodeAttribute() != None:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
             extract_materials_from_node(node, material_dict)
@@ -486,11 +467,7 @@ def generate_material_dict(scene):
         material_name = getMaterialName(material)
         material_dict[material_name] = material_object
 
-    # generate material porxies
-    # Three.js does not support meshs with multiple materials, however it does
-    # support materials with multiple submaterials
-    node = scene.GetRootNode()
-    if node:
+    if node := scene.GetRootNode():
         for i in range(node.GetChildCount()):
             generate_materials_from_hierarchy(node.GetChild(i), material_dict)
 
@@ -517,21 +494,17 @@ def generate_texture_object(texture):
     index = url.rfind( '/' )
     if index == -1:
         index = url.rfind( '\\' )
-    filename = url[ index+1 : len(url) ]
+    filename = url[index+1:]
 
-    output = {
-
-      'url': filename,
-      'fullpath': url,
-      'repeat': serializeVector2( (1,1) ),
-      'offset': serializeVector2( texture.GetUVTranslation() ),
-      'magFilter': 'LinearFilter',
-      'minFilter': 'LinearMipMapLinearFilter',
-      'anisotropy': True
-
+    return {
+        'url': filename,
+        'fullpath': url,
+        'repeat': serializeVector2((1, 1)),
+        'offset': serializeVector2(texture.GetUVTranslation()),
+        'magFilter': 'LinearFilter',
+        'minFilter': 'LinearMipMapLinearFilter',
+        'anisotropy': True,
     }
-
-    return output
 
 # #####################################################
 # Replace Texture input path to output
@@ -561,28 +534,31 @@ def replace_OutFolder2inFolder(url):
 # Find Scene Textures
 # #####################################################
 def extract_material_textures(material_property, texture_dict):
-    if material_property.IsValid():
-        #Here we have to check if it's layeredtextures, or just textures:
-        layered_texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId))
-        if layered_texture_count > 0:
-            for j in range(layered_texture_count):
-                layered_texture = material_property.GetSrcObject(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId), j)
-                texture_count = layered_texture.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
-                for k in range(texture_count):
-                    texture = layered_texture.GetSrcObject(FbxCriteria.ObjectType(FbxTexture.ClassId),k)
-                    if texture:
-                        texture_object = generate_texture_object(texture)
-                        texture_name = getTextureName( texture, True )
-                        texture_dict[texture_name] = texture_object
-        else:
-            # no layered texture simply get on the property
-            texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
-            for j in range(texture_count):
-                texture = material_property.GetSrcObject(FbxCriteria.ObjectType(FbxTexture.ClassId),j)
-                if texture:
+    if not material_property.IsValid():
+        return
+    #Here we have to check if it's layeredtextures, or just textures:
+    layered_texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId))
+    if layered_texture_count > 0:
+        for j in range(layered_texture_count):
+            layered_texture = material_property.GetSrcObject(FbxCriteria.ObjectType(FbxLayeredTexture.ClassId), j)
+            texture_count = layered_texture.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
+            for k in range(texture_count):
+                if texture := layered_texture.GetSrcObject(
+                    FbxCriteria.ObjectType(FbxTexture.ClassId), k
+                ):
                     texture_object = generate_texture_object(texture)
                     texture_name = getTextureName( texture, True )
                     texture_dict[texture_name] = texture_object
+    else:
+        # no layered texture simply get on the property
+        texture_count = material_property.GetSrcObjectCount(FbxCriteria.ObjectType(FbxTexture.ClassId))
+        for j in range(texture_count):
+            if texture := material_property.GetSrcObject(
+                FbxCriteria.ObjectType(FbxTexture.ClassId), j
+            ):
+                texture_object = generate_texture_object(texture)
+                texture_name = getTextureName( texture, True )
+                texture_dict[texture_name] = texture_object
 
 def extract_textures_from_node(node, texture_dict):
     name = node.GetName()
@@ -591,19 +567,16 @@ def extract_textures_from_node(node, texture_dict):
     #for all materials attached to this mesh
     material_count = mesh.GetNode().GetSrcObjectCount(FbxCriteria.ObjectType(FbxSurfaceMaterial.ClassId))
     for material_index in range(material_count):
-        material = mesh.GetNode().GetSrcObject(FbxCriteria.ObjectType(FbxSurfaceMaterial.ClassId), material_index)
-
-        #go through all the possible textures types
-        if material:
+        if material := mesh.GetNode().GetSrcObject(
+            FbxCriteria.ObjectType(FbxSurfaceMaterial.ClassId), material_index
+        ):
             texture_count = FbxLayerElement.sTypeTextureCount()
             for texture_index in range(texture_count):
                 material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
                 extract_material_textures(material_property, texture_dict)
 
 def generate_textures_from_hierarchy(node, texture_dict):
-    if node.GetNodeAttribute() == None:
-        pass
-    else:
+    if node.GetNodeAttribute() != None:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
             extract_textures_from_node(node, texture_dict)
@@ -615,8 +588,7 @@ def generate_texture_dict(scene):
         return {}
 
     texture_dict = {}
-    node = scene.GetRootNode()
-    if node:
+    if node := scene.GetRootNode():
         for i in range(node.GetChildCount()):
             generate_textures_from_hierarchy(node.GetChild(i), texture_dict)
     return texture_dict
@@ -634,8 +606,7 @@ def extract_fbx_vertex_positions(mesh):
         tmp = [tmp[0], tmp[1], tmp[2]]
         positions.append(tmp)
 
-    node = mesh.GetNode()
-    if node:
+    if node := mesh.GetNode():
         t = node.GeometricTranslation.Get()
         t = FbxVector4(t[0], t[1], t[2], 1)
         r = node.GeometricRotation.Get()
@@ -643,17 +614,19 @@ def extract_fbx_vertex_positions(mesh):
         s = node.GeometricScaling.Get()
         s = FbxVector4(s[0], s[1], s[2], 1)
 
-        hasGeometricTransform = False
-        if t[0] != 0 or t[1] != 0 or t[2] != 0 or \
-           r[0] != 0 or r[1] != 0 or r[2] != 0 or \
-           s[0] != 1 or s[1] != 1 or s[2] != 1:
-            hasGeometricTransform = True
+        hasGeometricTransform = (
+            t[0] != 0
+            or t[1] != 0
+            or t[2] != 0
+            or r[0] != 0
+            or r[1] != 0
+            or r[2] != 0
+            or s[0] != 1
+            or s[1] != 1
+            or s[2] != 1
+        )
 
-        if hasGeometricTransform:
-            geo_transform = FbxMatrix(t,r,s)
-        else:
-            geo_transform = FbxMatrix()
-
+        geo_transform = FbxMatrix(t,r,s) if hasGeometricTransform else FbxMatrix()
         transform = None
 
         if option_geometry:
@@ -708,8 +681,7 @@ def extract_fbx_vertex_normals(mesh):
             normal = [normal[0], normal[1], normal[2]]
             normal_values.append(normal)
 
-        node = mesh.GetNode()
-        if node:
+        if node := mesh.GetNode():
             t = node.GeometricTranslation.Get()
             t = FbxVector4(t[0], t[1], t[2], 1)
             r = node.GeometricRotation.Get()
@@ -723,11 +695,7 @@ def extract_fbx_vertex_normals(mesh):
                s[0] != 1 or s[1] != 1 or s[2] != 1:
                 hasGeometricTransform = True
 
-            if hasGeometricTransform:
-                geo_transform = FbxMatrix(t,r,s)
-            else:
-                geo_transform = FbxMatrix()
-
+            geo_transform = FbxMatrix(t,r,s) if hasGeometricTransform else FbxMatrix()
             transform = None
 
             if option_geometry:
@@ -773,8 +741,6 @@ def extract_fbx_vertex_normals(mesh):
                         index = mesh_normals.GetIndexArray().GetAt(control_point_index)
                         poly_normals.append(index)
 
-                # mapping mode is by polygon-vertex.
-                # we can get normals by retrieving polygon-vertex.
                 elif mesh_normals.GetMappingMode() == FbxLayerElement.eByPolygonVertex:
 
                     if mesh_normals.GetReferenceMode() == FbxLayerElement.eDirect:
@@ -784,9 +750,11 @@ def extract_fbx_vertex_normals(mesh):
                         index = mesh_normals.GetIndexArray().GetAt(vertexId)
                         poly_normals.append(index)
 
-                elif mesh_normals.GetMappingMode() == FbxLayerElement.eByPolygon or \
-                     mesh_normals.GetMappingMode() ==  FbxLayerElement.eAllSame or \
-                     mesh_normals.GetMappingMode() ==  FbxLayerElement.eNone:
+                elif mesh_normals.GetMappingMode() in [
+                    FbxLayerElement.eByPolygon,
+                    FbxLayerElement.eAllSame,
+                    FbxLayerElement.eNone,
+                ]:
                     print("unsupported normal mapping mode for polygon vertex")
 
                 vertexId += 1
@@ -799,7 +767,7 @@ def extract_fbx_vertex_normals(mesh):
     normal_indices = []
 
     # Three.js only supports one layer of normals
-    if len(layered_normal_values) > 0:
+    if layered_normal_values:
         normal_values = layered_normal_values[0]
         normal_indices = layered_normal_indices[0]
 
@@ -860,9 +828,11 @@ def extract_fbx_vertex_colors(mesh):
                     elif mesh_colors.GetReferenceMode() == FbxLayerElement.eIndexToDirect:
                         index = mesh_colors.GetIndexArray().GetAt(vertexId)
                         poly_colors.append(index)
-                elif mesh_colors.GetMappingMode() == FbxLayerElement.eByPolygon or \
-                     mesh_colors.GetMappingMode() ==  FbxLayerElement.eAllSame or \
-                     mesh_colors.GetMappingMode() ==  FbxLayerElement.eNone:
+                elif mesh_colors.GetMappingMode() in [
+                    FbxLayerElement.eByPolygon,
+                    FbxLayerElement.eAllSame,
+                    FbxLayerElement.eNone,
+                ]:
                     print("unsupported color mapping mode for polygon vertex")
 
                 vertexId += 1
@@ -875,7 +845,7 @@ def extract_fbx_vertex_colors(mesh):
     color_indices = []
 
     # Three.js only supports one layer of colors
-    if len(layered_color_values) > 0:
+    if layered_color_values:
         color_values = layered_color_values[0]
         color_indices = layered_color_indices[0]
 
@@ -945,12 +915,16 @@ def extract_fbx_vertex_uvs(mesh):
                 elif mesh_uvs.GetMappingMode() == FbxLayerElement.eByPolygonVertex:
                     uv_texture_index = mesh_uvs.GetIndexArray().GetAt(vertexId)
 
-                    if mesh_uvs.GetReferenceMode() == FbxLayerElement.eDirect or \
-                       mesh_uvs.GetReferenceMode() == FbxLayerElement.eIndexToDirect:
+                    if mesh_uvs.GetReferenceMode() in [
+                        FbxLayerElement.eDirect,
+                        FbxLayerElement.eIndexToDirect,
+                    ]:
                         poly_uvs.append(uv_texture_index)
-                elif mesh_uvs.GetMappingMode() == FbxLayerElement.eByPolygon or \
-                     mesh_uvs.GetMappingMode() ==  FbxLayerElement.eAllSame or \
-                     mesh_uvs.GetMappingMode() ==  FbxLayerElement.eNone:
+                elif mesh_uvs.GetMappingMode() in [
+                    FbxLayerElement.eByPolygon,
+                    FbxLayerElement.eAllSame,
+                    FbxLayerElement.eNone,
+                ]:
                     print("unsupported uv mapping mode for polygon vertex")
 
                 vertexId += 1
@@ -1049,25 +1023,31 @@ def generate_unique_uvs_dictionary_layers(mesh_list):
     return uvs_dictionary_layers
 
 def generate_normals_from_dictionary(normals_dictionary):
-    normal_values = []
-    for key, index in sorted(normals_dictionary.items(), key = operator.itemgetter(1)):
-        normal_values.append(key)
-
-    return normal_values
+    return [
+        key
+        for key, index in sorted(
+            normals_dictionary.items(), key=operator.itemgetter(1)
+        )
+    ]
 
 def generate_colors_from_dictionary(colors_dictionary):
-    color_values = []
-    for key, index in sorted(colors_dictionary.items(), key = operator.itemgetter(1)):
-        color_values.append(key)
-
-    return color_values
+    return [
+        key
+        for key, index in sorted(
+            colors_dictionary.items(), key=operator.itemgetter(1)
+        )
+    ]
 
 def generate_uvs_from_dictionary_layers(uvs_dictionary_layers):
     uv_values = []
     for uvs_dictionary in uvs_dictionary_layers:
-        uv_values_layer = []
-        for key, index in sorted(uvs_dictionary.items(), key = operator.itemgetter(1)):
-            uv_values_layer.append(key)
+        uv_values_layer = [
+            key
+            for key, index in sorted(
+                uvs_dictionary.items(), key=operator.itemgetter(1)
+            )
+        ]
+
         uv_values.append(uv_values_layer)
 
     return uv_values
@@ -1156,8 +1136,7 @@ def process_mesh_materials(mesh_list):
         material_count = node.GetMaterialCount()
         if material_count > 0:
             for l in range(mesh.GetLayerCount()):
-                materials = mesh.GetLayer(l).GetMaterials()
-                if materials:
+                if materials := mesh.GetLayer(l).GetMaterials():
                     if materials.GetReferenceMode() == FbxLayerElement.eIndex:
                         #Materials are in an undefined external table
                         continue
@@ -1177,8 +1156,7 @@ def process_mesh_polygons(mesh_list, normals_to_indices, colors_to_indices, uvs_
         mesh = mesh_list[mesh_index]
 
         flipWindingOrder = False
-        node = mesh.GetNode()
-        if node:
+        if node := mesh.GetNode():
             local_scale = node.EvaluateLocalScaling()
             if local_scale[0] < 0 or local_scale[1] < 0 or local_scale[2] < 0:
                 flipWindingOrder = True
@@ -1229,9 +1207,10 @@ def process_mesh_polygons(mesh_list, normals_to_indices, colors_to_indices, uvs_
                     if len(face_colors):
                         new_face_colors = [face_colors[0], face_colors[i+1], face_colors[i+2]]
                     if len(face_uv_layers):
-                        new_face_uv_layers = []
-                        for layer in face_uv_layers:
-                            new_face_uv_layers.append([layer[0], layer[i+1], layer[i+2]])
+                        new_face_uv_layers = [
+                            [layer[0], layer[i + 1], layer[i + 2]]
+                            for layer in face_uv_layers
+                        ]
 
                     face = generate_mesh_face(mesh,
                         poly_index,
@@ -1285,19 +1264,7 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
     faceType = setBit(faceType, 6, hasFaceColors)
     faceType = setBit(faceType, 7, hasFaceVertexColors)
 
-    faceData = []
-
-    # order is important, must match order in JSONLoader
-
-    # face type
-    # vertex indices
-    # material index
-    # face uvs index
-    # face vertex uvs indices
-    # face color index
-    # face vertex colors indices
-
-    faceData.append(faceType)
+    faceData = [faceType]
 
     if flipOrder:
         if nVertices == 3:
@@ -1307,9 +1274,11 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
             if hasFaceVertexColors:
                 colors = [colors[0], colors[2], colors[1]]
             if hasFaceVertexUvs:
-                tmp = []
-                for polygon_uvs in uv_layers:
-                    tmp.append([polygon_uvs[0], polygon_uvs[2], polygon_uvs[1]])
+                tmp = [
+                    [polygon_uvs[0], polygon_uvs[2], polygon_uvs[1]]
+                    for polygon_uvs in uv_layers
+                ]
+
                 uv_layers = tmp
         else:
             vertex_indices = [vertex_indices[0], vertex_indices[3], vertex_indices[2], vertex_indices[1]]
@@ -1318,9 +1287,16 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
             if hasFaceVertexColors:
                 colors = [colors[0], colors[3], colors[2], colors[1]]
             if hasFaceVertexUvs:
-                tmp = []
-                for polygon_uvs in uv_layers:
-                    tmp.append([polygon_uvs[0], polygon_uvs[3], polygon_uvs[2], polygon_uvs[3]])
+                tmp = [
+                    [
+                        polygon_uvs[0],
+                        polygon_uvs[3],
+                        polygon_uvs[2],
+                        polygon_uvs[3],
+                    ]
+                    for polygon_uvs in uv_layers
+                ]
+
                 uv_layers = tmp
 
     for i in range(nVertices):
@@ -1330,8 +1306,7 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
     if hasMaterial:
         material_id = 0
         for l in range(mesh.GetLayerCount()):
-            materials = mesh.GetLayer(l).GetMaterials()
-            if materials:
+            if materials := mesh.GetLayer(l).GetMaterials():
                 material_id = materials.GetIndexArray().GetAt(polygon_index)
                 break
         material_id += material_offset
@@ -1385,10 +1360,7 @@ def generate_scene_output(node):
                 material_offsets)
 
     # Generate counts for uvs, vertices, normals, colors, and faces
-    nuvs = []
-    for layer_index, uvs in enumerate(uv_values):
-        nuvs.append(str(len(uvs)))
-
+    nuvs = [str(len(uvs)) for uvs in uv_values]
     nvertices = len(vertices)
     nnormals = len(normal_values)
     ncolors = len(color_values)
@@ -1397,7 +1369,7 @@ def generate_scene_output(node):
     # Flatten the arrays, currently they are in the form of [[0, 1, 2], [3, 4, 5], ...]
     vertices = [val for v in vertices for val in v]
     normal_values = [val for n in normal_values for val in n]
-    color_values = [c for c in color_values]
+    color_values = list(color_values)
     faces = [val for f in faces for val in f]
     uv_values = generate_uvs(uv_values)
 

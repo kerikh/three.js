@@ -64,8 +64,7 @@ class Object(base_classes.BaseNode):
         """Initialize mesh attributes"""
         logger.debug("Object()._init_mesh()")
         mesh = api.object.mesh(self.node, self.options)
-        node = self.scene.geometry(mesh)
-        if node:
+        if node := self.scene.geometry(mesh):
             self[constants.GEOMETRY] = node[constants.UUID]
         else:
             msg = "Could not find Geometry() node for %s"
@@ -78,10 +77,8 @@ class Object(base_classes.BaseNode):
 
         transform = api.object.matrix(self.node, self.options)
         matrix = []
-        for col in range(0, 4):
-            for row in range(0, 4):
-                matrix.append(transform[row][col])
-
+        for col in range(4):
+            matrix.extend(transform[row][col] for row in range(4))
         self[constants.MATRIX] = matrix
 
         self[constants.VISIBLE] = api.object.visible(self.node)
@@ -92,13 +89,11 @@ class Object(base_classes.BaseNode):
             logger.info("Parsing materials for %s", self.node)
 
 
-            material_names = api.object.material(self.node) #manthrax: changes for multimaterial start here
-            if material_names:
-
+            if material_names := api.object.material(self.node):
                 logger.info("Got material names for this object:%s",str(material_names));
 
                 materialArray = [self.scene.material(objname)[constants.UUID] for objname in material_names]
-                if len(materialArray) == 0:  # If no materials.. dont export a material entry
+                if not materialArray:  # If no materials.. dont export a material entry
                     materialArray = None
                 elif len(materialArray) == 1: # If only one material, export material UUID singly, not as array
                     materialArray = materialArray[0]

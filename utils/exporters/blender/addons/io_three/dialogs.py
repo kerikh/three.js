@@ -105,7 +105,7 @@ def _draw(message, title, wrap, key):
         for line in lines:
             self.layout.label(line)
 
-    title = "%s: %s" % (title, CONTEXT[key]['title'])
+    title = f"{title}: {CONTEXT[key]['title']}"
     icon = CONTEXT[key]['icon']
 
     context.window_manager.popup_menu(

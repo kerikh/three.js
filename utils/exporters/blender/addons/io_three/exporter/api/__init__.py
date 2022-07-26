@@ -52,9 +52,7 @@ def selected_objects(valid_types=None):
     """
     logger.debug("api.selected_objects(%s)", valid_types)
     for node in bpy.context.selected_objects:
-        if valid_types is None:
-            yield node.name
-        elif valid_types is not None and node.type in valid_types:
+        if valid_types is None or node.type in valid_types:
             yield node.name
 
 

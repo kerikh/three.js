@@ -27,8 +27,7 @@ class Scene(base_classes.BaseScene):
         }
         base_classes.BaseScene.__init__(self, filepath, options or {})
 
-        source_file = api.scene_name()
-        if source_file:
+        if source_file := api.scene_name():
             self[constants.METADATA][constants.SOURCE_FILE] = source_file
         self.__init_animation()
 
@@ -38,7 +37,6 @@ class Scene(base_classes.BaseScene):
             constants.FPS : context.scene.render.fps,
             constants.KEYFRAMES: []
         });
-        pass
 
     @property
     def valid_types(self):
@@ -145,7 +143,7 @@ class Scene(base_classes.BaseScene):
                     if not embed:
                         geom_data.pop(constants.DATA)
 
-                        url = 'geometry.%s%s' % (geom.node, extension)
+                        url = f'geometry.{geom.node}{extension}'
                         geometry_file = os.path.join(export_dir, url)
 
                         geom.write(filepath=geometry_file)
@@ -155,9 +153,7 @@ class Scene(base_classes.BaseScene):
 
                 data[key] = geometries
             elif isinstance(value, list):
-                data[key] = []
-                for each in value:
-                    data[key].append(each.copy())
+                data[key] = [each.copy() for each in value]
             elif isinstance(value, dict):
                 data[key] = value.copy()
 
@@ -254,6 +250,5 @@ def _find_node(value, manifest):
         name = index.node == value
         if uuid or name:
             return index
-    else:
-        logger.debug("No matching node for %s", value)
+    logger.debug("No matching node for %s", value)
 

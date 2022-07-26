@@ -56,5 +56,4 @@ def rgb2int(rgb):
     is_tuple = isinstance(rgb, tuple)
     rgb = list(rgb) if is_tuple else rgb
 
-    colour = (int(rgb[0]*255) << 16) + (int(rgb[1]*255) << 8) + int(rgb[2]*255)
-    return colour
+    return (int(rgb[0]*255) << 16) + (int(rgb[1]*255) << 8) + int(rgb[2]*255)

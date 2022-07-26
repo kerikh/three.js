@@ -26,7 +26,7 @@ def copy(src, dst):
     :param dst: destination file/path
 
     """
-    logger.debug("io.copy(%s, %s)" % (src, dst))
+    logger.debug(f"io.copy({src}, {dst})")
     if os.path.isdir(dst):
         file_name = os.path.basename(src)
         dst = os.path.join(dst, file_name)
@@ -59,8 +59,7 @@ def dump(filepath, data, options=None):
         func = lambda x, y: msgpack.dump(x, y)
         mode = 'wb'
     else:
-        round_off = options.get(constants.ENABLE_PRECISION)
-        if round_off:
+        if round_off := options.get(constants.ENABLE_PRECISION):
             _json.ROUND = options[constants.PRECISION]
         else:
             _json.ROUND = None

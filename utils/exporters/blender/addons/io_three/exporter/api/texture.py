@@ -20,11 +20,7 @@ def _texture(func):
 
         """
 
-        if isinstance(name, types.Texture):
-            texture = name
-        else:
-            texture = data.textures[name]
-
+        texture = name if isinstance(name, types.Texture) else data.textures[name]
         return func(texture, *args, **kwargs)
 
     return inner
@@ -156,19 +152,14 @@ def wrap(texture):
     """
     logger.debug("texture.wrap(%s)", texture)
 
-    if(texture.extension == "REPEAT"):
-        wrapping = {
-            True: constants.WRAPPING.MIRROR,
-            False: constants.WRAPPING.REPEAT
-        }
-        return (wrapping[texture.use_mirror_x],
-                wrapping[texture.use_mirror_y])
-
-    # provide closest available three.js behavior.
-    # other possible values: "CLIP", "EXTEND", "CLIP_CUBE", "CHECKER",
-    # best match CLAMP behavior
-    else:
+    if texture.extension != "REPEAT":
         return (constants.WRAPPING.CLAMP, constants.WRAPPING.CLAMP);
+    wrapping = {
+        True: constants.WRAPPING.MIRROR,
+        False: constants.WRAPPING.REPEAT
+    }
+    return (wrapping[texture.use_mirror_x],
+            wrapping[texture.use_mirror_y])
 
 
 def textures():

@@ -15,7 +15,7 @@ def _error_handler(func):
         if version is not None:
             logger.debug("Addon Version %s", version)
         api.init()
-        
+
         try:
             func(filepath, options, *args, **kwargs)
         except:
@@ -24,12 +24,12 @@ def _error_handler(func):
                 info[0], info[1], info[2].tb_next)
             trace = ''.join(trace)
             logger.error(trace)
-            
-            print('Error recorded to %s' % logger.LOG_FILE)
+
+            print(f'Error recorded to {logger.LOG_FILE}')
 
             raise
         else:
-            print('Log: %s' % logger.LOG_FILE)
+            print(f'Log: {logger.LOG_FILE}')
 
     return inner
 
@@ -68,23 +68,22 @@ def export_geometry(filepath, options, node=None):
             logger.error(msg)
             exception = exceptions.SelectionError
         if node.type != 'MESH':
-            msg = "%s is not a valid mesh object" % node.name
+            msg = f"{node.name} is not a valid mesh object"
             logger.error(msg)
             exception = exceptions.GeometryError
-    
+
         if exception is not None:
             if api.batch_mode():
                 raise exception(msg)
-            else:
-                dialogs.error(msg)
-                return
+            dialogs.error(msg)
+            return
 
     mesh = api.object.mesh(node, options)
     parent = base_classes.BaseScene(filepath, options)
     geo = geometry.Geometry(mesh, parent)
     geo.parse()
     geo.write()
-    
+
     if not options.get(constants.EMBED_ANIMATION, True):
         geo.write_animation(os.path.dirname(filepath))
 

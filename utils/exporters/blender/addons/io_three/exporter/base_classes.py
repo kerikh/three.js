@@ -18,7 +18,7 @@ class BaseClass(constants.BASE_DICT):
 
     def __setitem__(self, key, value):
         if not isinstance(value, constants.VALID_DATA_TYPES):
-            msg = "Value is an invalid data type: %s" % type(value)
+            msg = f"Value is an invalid data type: {type(value)}"
             raise exceptions.ThreeValueError(msg)
         constants.BASE_DICT.__setitem__(self, key, value)
 
@@ -86,12 +86,9 @@ class BaseNode(BaseClass):
     def __init__(self, node, parent, type):
         BaseClass.__init__(self, parent=parent, type=type)
         self._node = node
-        if node is None:
-            self[constants.UUID] = utilities.id()
-        else:
+        if node is not None:
             self[constants.NAME] = node
-            self[constants.UUID] = utilities.id()
-
+        self[constants.UUID] = utilities.id()
         if isinstance(parent, BaseScene):
             scene = parent
         elif parent is not None:

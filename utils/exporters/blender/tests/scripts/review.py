@@ -39,10 +39,10 @@ def parse_args():
 def copy_for_review(tmp_json, tag):
     tag_dir = os.path.join(review, tag)
     if not os.path.exists(tag_dir):
-        print('making %s' % tag_dir)
+        print(f'making {tag_dir}')
         os.makedirs(tag_dir)
-    dst_json = os.path.join(tag_dir, '%s.json' % tag)
-    print('moving %s > %s' % (tmp_json, dst_json))
+    dst_json = os.path.join(tag_dir, f'{tag}.json')
+    print(f'moving {tmp_json} > {dst_json}')
     shutil.move(tmp_json, dst_json)
     create_template(tag_dir, os.path.basename(dst_json))
 
@@ -57,9 +57,7 @@ def copy_for_review(tmp_json, tag):
 
     images = data.get('images')
     if data['metadata']['type'] == 'Object' and images:
-        for each in images:
-            textures.append(each['url'])
-    
+        textures.extend(each['url'] for each in images)
     textures = list(set(textures))
     print('found %d maps' % len(textures))
     dir_tmp = os.path.dirname(tmp_json)
@@ -67,7 +65,7 @@ def copy_for_review(tmp_json, tag):
         texture = os.path.join(dir_tmp, texture)
         dst = os.path.join(tag_dir, os.path.basename(texture))
         shutil.move(texture, dst)
-        print('moving %s > %s' % (texture, dst))
+        print(f'moving {texture} > {dst}')
 
     if data['metadata']['type'] == 'Object':
         print('looking for non-embedded geometry')
@@ -76,7 +74,7 @@ def copy_for_review(tmp_json, tag):
             if not url: continue
             src = os.path.join(dir_tmp, url)
             dst = os.path.join(tag_dir, url)
-            print('moving %s > %s' % (src, dst))
+            print(f'moving {src} > {dst}')
             shutil.move(src, dst)
     elif data['metadata']['type'] == 'Geometry':
         print('looking for external animation files')
@@ -91,7 +89,7 @@ def copy_for_review(tmp_json, tag):
 
             src = os.path.join(dir_tmp, value)
             dst = os.path.join(tag_dir, value)
-            print('moving %s > %s' % (src, dst))
+            print(f'moving {src} > {dst}')
             shutil.move(src, dst)
             
 
@@ -100,9 +98,7 @@ def _parse_geometry_materials(materials):
         'mapLight', 'mapNormal')
     textures = []
     for material in materials:
-        for key in material.keys():
-            if key in maps:
-                textures.append(material[key])
+        textures.extend(material[key] for key in material.keys() if key in maps)
     return textures
 
 
